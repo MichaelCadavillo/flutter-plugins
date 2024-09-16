@@ -4,11 +4,15 @@
 
 package io.flutter.plugins.webviewflutter;
 
+import android.app.Application;
 import android.content.Context;
+import android.content.pm.PackageManager;
 import android.os.Handler;
+import android.util.Log;
 import android.view.View;
 import androidx.annotation.NonNull;
-import androidx.annotation.Nullable;
+
+import io.flutter.app.FlutterApplication;
 import io.flutter.embedding.engine.plugins.FlutterPlugin;
 import io.flutter.embedding.engine.plugins.activity.ActivityAware;
 import io.flutter.embedding.engine.plugins.activity.ActivityPluginBinding;
@@ -17,13 +21,19 @@ import io.flutter.plugin.platform.PlatformViewRegistry;
 import io.flutter.plugins.webviewflutter.GeneratedAndroidWebView.CookieManagerHostApi;
 import io.flutter.plugins.webviewflutter.GeneratedAndroidWebView.DownloadListenerHostApi;
 import io.flutter.plugins.webviewflutter.GeneratedAndroidWebView.FlutterAssetManagerHostApi;
-import io.flutter.plugins.webviewflutter.GeneratedAndroidWebView.JavaObjectHostApi;
 import io.flutter.plugins.webviewflutter.GeneratedAndroidWebView.JavaScriptChannelHostApi;
 import io.flutter.plugins.webviewflutter.GeneratedAndroidWebView.WebChromeClientHostApi;
 import io.flutter.plugins.webviewflutter.GeneratedAndroidWebView.WebSettingsHostApi;
-import io.flutter.plugins.webviewflutter.GeneratedAndroidWebView.WebStorageHostApi;
 import io.flutter.plugins.webviewflutter.GeneratedAndroidWebView.WebViewClientHostApi;
 import io.flutter.plugins.webviewflutter.GeneratedAndroidWebView.WebViewHostApi;
+
+import android.app.Activity;
+import android.content.Context;
+import android.content.Intent;
+import android.widget.Toast;
+
+import io.flutter.plugin.common.PluginRegistry;
+import io.flutter.plugin.common.PluginRegistry.Registrar;
 
 /**
  * Java platform implementation of the webview_flutter plugin.
@@ -32,12 +42,14 @@ import io.flutter.plugins.webviewflutter.GeneratedAndroidWebView.WebViewHostApi;
  *
  * <p>Call {@link #registerWith} to use the stable {@code io.flutter.plugin.common} package instead.
  */
-public class WebViewFlutterPlugin implements FlutterPlugin, ActivityAware {
-  @Nullable private InstanceManager instanceManager;
-
+public class WebViewFlutterPlugin implements FlutterPlugin, ActivityAware/*, PluginRegistry.ActivityResultListener,PluginRegistry.RequestPermissionsResultListener*/ {
   private FlutterPluginBinding pluginBinding;
   private WebViewHostApiImpl webViewHostApi;
   private JavaScriptChannelHostApiImpl javaScriptChannelHostApi;
+  private WebChromeClientHostApiImpl webChromeClientHostApi;
+  private static final String TAG = "WebViewFlutterPlugin";
+  public static Activity activity;
+  public static Application application;
 
   /**
    * Add an instance of this to {@link io.flutter.embedding.engine.plugins.PluginRegistry} to
@@ -78,22 +90,14 @@ public class WebViewFlutterPlugin implements FlutterPlugin, ActivityAware {
       Context context,
       View containerView,
       FlutterAssetManager flutterAssetManager) {
-    instanceManager =
-        InstanceManager.open(
-            identifier ->
-                new GeneratedAndroidWebView.JavaObjectFlutterApi(binaryMessenger)
-                    .dispose(identifier, reply -> {}));
 
+    InstanceManager instanceManager = new InstanceManager();
     viewRegistry.registerViewFactory(
         "plugins.flutter.io/webview", new FlutterWebViewFactory(instanceManager));
 
     webViewHostApi =
         new WebViewHostApiImpl(
-            instanceManager,
-            binaryMessenger,
-            new WebViewHostApiImpl.WebViewProxy(),
-            context,
-            containerView);
+            instanceManager, new WebViewHostApiImpl.WebViewProxy(), context, containerView);
     javaScriptChannelHostApi =
         new JavaScriptChannelHostApiImpl(
             instanceManager,
@@ -101,7 +105,6 @@ public class WebViewFlutterPlugin implements FlutterPlugin, ActivityAware {
             new JavaScriptChannelFlutterApiImpl(binaryMessenger, instanceManager),
             new Handler(context.getMainLooper()));
 
-    JavaObjectHostApi.setup(binaryMessenger, new JavaObjectHostApiImpl(instanceManager));
     WebViewHostApi.setup(binaryMessenger, webViewHostApi);
     JavaScriptChannelHostApi.setup(binaryMessenger, javaScriptChannelHostApi);
     WebViewClientHostApi.setup(
@@ -110,12 +113,13 @@ public class WebViewFlutterPlugin implements FlutterPlugin, ActivityAware {
             instanceManager,
             new WebViewClientHostApiImpl.WebViewClientCreator(),
             new WebViewClientFlutterApiImpl(binaryMessenger, instanceManager)));
-    WebChromeClientHostApi.setup(
-        binaryMessenger,
-        new WebChromeClientHostApiImpl(
+
+    webChromeClientHostApi = new WebChromeClientHostApiImpl(
             instanceManager,
             new WebChromeClientHostApiImpl.WebChromeClientCreator(),
-            new WebChromeClientFlutterApiImpl(binaryMessenger, instanceManager)));
+            new WebChromeClientFlutterApiImpl(binaryMessenger, instanceManager));
+    WebChromeClientHostApi.setup(binaryMessenger, webChromeClientHostApi);
+
     DownloadListenerHostApi.setup(
         binaryMessenger,
         new DownloadListenerHostApiImpl(
@@ -129,14 +133,12 @@ public class WebViewFlutterPlugin implements FlutterPlugin, ActivityAware {
     FlutterAssetManagerHostApi.setup(
         binaryMessenger, new FlutterAssetManagerHostApiImpl(flutterAssetManager));
     CookieManagerHostApi.setup(binaryMessenger, new CookieManagerHostApiImpl());
-    WebStorageHostApi.setup(
-        binaryMessenger,
-        new WebStorageHostApiImpl(instanceManager, new WebStorageHostApiImpl.WebStorageCreator()));
   }
 
   @Override
   public void onAttachedToEngine(@NonNull FlutterPluginBinding binding) {
     pluginBinding = binding;
+    application = (Application) binding.getApplicationContext();
     setUp(
         binding.getBinaryMessenger(),
         binding.getPlatformViewRegistry(),
@@ -144,35 +146,58 @@ public class WebViewFlutterPlugin implements FlutterPlugin, ActivityAware {
         null,
         new FlutterAssetManager.PluginBindingFlutterAssetManager(
             binding.getApplicationContext().getAssets(), binding.getFlutterAssets()));
+
+//    Log.e(TAG, "onAttachedToEngine: " );
   }
 
   @Override
   public void onDetachedFromEngine(@NonNull FlutterPluginBinding binding) {
-    if (instanceManager != null) {
-      instanceManager.close();
-      instanceManager = null;
-    }
   }
 
   @Override
-  public void onAttachedToActivity(@NonNull ActivityPluginBinding activityPluginBinding) {
-    updateContext(activityPluginBinding.getActivity());
+  public void onAttachedToActivity(@NonNull ActivityPluginBinding binding) {
+    activity = binding.getActivity();
+    updateContext(binding.getActivity());
+//    Log.v(TAG,"onAttachedToActivity "+binding.getActivity());
+    binding.addRequestPermissionsResultListener(new PluginRegistry.RequestPermissionsResultListener() {
+      @Override
+      public boolean onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
+//        Log.v(TAG,"onRequestPermissionsResult");
+        if (webChromeClientHostApi != null){
+          return webChromeClientHostApi.requestPermissionsResult(requestCode, permissions, grantResults);
+        }
+        return false;
+      }
+    });
+    binding.addActivityResultListener(new PluginRegistry.ActivityResultListener() {
+      @Override
+      public boolean onActivityResult(int requestCode, int resultCode, Intent data) {
+//        Log.v(TAG,"onActivityResult");
+        if (webChromeClientHostApi != null){
+          return webChromeClientHostApi.activityResult(requestCode, resultCode, data);
+        }
+        return false;
+      }
+    });
   }
 
   @Override
   public void onDetachedFromActivityForConfigChanges() {
     updateContext(pluginBinding.getApplicationContext());
+    activity = null;
   }
 
   @Override
   public void onReattachedToActivityForConfigChanges(
       @NonNull ActivityPluginBinding activityPluginBinding) {
     updateContext(activityPluginBinding.getActivity());
+    activity = activityPluginBinding.getActivity();
   }
 
   @Override
   public void onDetachedFromActivity() {
     updateContext(pluginBinding.getApplicationContext());
+    activity = null;
   }
 
   private void updateContext(Context context) {
@@ -180,9 +205,24 @@ public class WebViewFlutterPlugin implements FlutterPlugin, ActivityAware {
     javaScriptChannelHostApi.setPlatformThreadHandler(new Handler(context.getMainLooper()));
   }
 
-  /** Maintains instances used to communicate with the corresponding objects in Dart. */
-  @Nullable
-  public InstanceManager getInstanceManager() {
-    return instanceManager;
-  }
+//  @Override
+//  public boolean onActivityResult(int requestCode, int resultCode, Intent data) {
+//    Log.v(TAG,"onActivityResult");
+//    if (webChromeClientHostApi != null){
+//      return webChromeClientHostApi.activityResult(requestCode, resultCode, data);
+//    }
+//
+//    return false;
+//  }
+//
+//  @Override
+//  public boolean onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
+//    Log.v(TAG,"onRequestPermissionsResult");
+//    if (webChromeClientHostApi != null){
+//      return webChromeClientHostApi.requestPermissionsResult(requestCode, permissions, grantResults);
+//    }
+//
+//    return false;
+//  }
+
 }

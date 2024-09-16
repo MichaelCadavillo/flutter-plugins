@@ -1,6 +1,6 @@
 # webview_flutter_platform_interface
 
-A common platform interface for the [`webview_flutter`](https://pub.dev/packages/webview_flutter) plugin.
+A common platform interface for the [`flutter_webview_pro`](https://pub.dev/packages//flutter_webview_pro) plugin.
 
 This interface allows platform-specific implementations of the `webview_flutter`
 plugin, as well as the plugin itself, to ensure they are supporting the
@@ -9,10 +9,10 @@ same interface.
 # Usage
 
 To implement a new platform-specific implementation of `webview_flutter`, extend
-[`WebviewPlatform`](lib/src/webview_platform.dart) with an implementation that performs the
+[`WebviewPlatform`](lib/src/platform_interface/webview_platform.dart) with an implementation that performs the
 platform-specific behavior, and when you register your plugin, set the default
 `WebviewPlatform` by calling
-`WebviewPlatform.instance = MyPlatformWebview()`.
+`WebviewPlatform.setInstance(MyPlatformWebview())`.
 
 # Note on breaking changes
 
